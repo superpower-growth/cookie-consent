@@ -160,12 +160,24 @@
 
   function q(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
 
+  // Finsweet cloneables sit in a hidden state via inline IX2 transforms
+  // (translate3d(0,100%,0), opacity:0). Animate past them directly instead of
+  // replaying Webflow interactions via [fs-cc="interaction"] trigger clicks.
   function show(el) {
     if (!el) return;
     el.style.display = '';
     if (getComputedStyle(el).display === 'none') el.style.display = 'flex';
+    el.style.transition = 'transform .4s ease, opacity .4s ease';
+    requestAnimationFrame(function () {
+      el.style.transform = 'none';
+      el.style.opacity = '1';
+    });
   }
-  function hide(el) { if (el) el.style.display = 'none'; }
+  function hide(el) {
+    if (!el) return;
+    el.style.opacity = '0';
+    setTimeout(function () { el.style.display = 'none'; }, 400);
+  }
 
   // Pre-hide consent components before first paint (script runs in <head>).
   var preHide = document.createElement('style');
@@ -243,7 +255,8 @@
     var prefs = document.querySelector('[fs-cc="preferences"]');
     var manager = document.querySelector('[fs-cc="manager"]');
 
-    hide(banner); hide(prefs); hide(manager);
+    // Instant hide (no fade) before first reveal — kills the peeking sliver.
+    [banner, prefs, manager].forEach(function (el) { if (el) el.style.display = 'none'; });
     if (!initial) show(banner); else show(manager);
 
     function syncCheckboxes(c) {

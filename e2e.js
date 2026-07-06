@@ -22,12 +22,25 @@ const assert = require('assert');
   await page.goto('https://superpower-health.webflow.io/', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2500);
 
-  // 1. Banner visible on fresh visit
+  // 1. Banner visible on fresh visit (Webflow component slides up past its IX2 transform)
   assert(await page.isVisible('[fs-cc="banner"]'), 'banner visible on first visit');
+  const bannerPos = await page.evaluate(() => {
+    const el = document.querySelector('[fs-cc="banner"]');
+    const r = el.getBoundingClientRect();
+    return { onScreen: r.top >= 0 && r.top + r.height <= innerHeight + 1, transform: getComputedStyle(el).transform };
+  });
+  assert(bannerPos.onScreen, 'banner fully on screen, not stuck offscreen: ' + JSON.stringify(bannerPos));
+  await page.screenshot({ path: __dirname + '/banner-visible.png' });
   const hitsBefore = trackerHits.length; // trackers allowed pre-choice
 
-  // 2. Decline → cookie written with denials, page reloads
-  await page.click('[fs-cc="deny"]');
+  // 2. Decline (deny lives in the preferences modal on the real component)
+  const bannerDeny = await page.isVisible('[fs-cc="banner"] [fs-cc="deny"]');
+  if (bannerDeny) {
+    await page.click('[fs-cc="banner"] [fs-cc="deny"]');
+  } else {
+    await page.click('[fs-cc="banner"] [fs-cc="open-preferences"]');
+    await page.click('[fs-cc="preferences"] [fs-cc="deny"]');
+  }
   await page.waitForTimeout(2500);
   const cookie = (await ctx.cookies()).find(c => c.name === 'fs-cc');
   assert(cookie, 'fs-cc cookie written');
@@ -56,7 +69,7 @@ const assert = require('assert');
   await ctx.clearCookies();
   trackerHits.length = 0;
   await page.goto('https://superpower-health.webflow.io/', { waitUntil: 'domcontentloaded' });
-  await page.click('[fs-cc="allow"]');
+  await page.click('[fs-cc="banner"] [fs-cc="allow"]');
   await page.waitForTimeout(3000);
   const accepted = await page.evaluate(() => ({
     consents: JSON.parse(decodeURIComponent(document.cookie.match(/fs-cc=([^;]+)/)[1])).consents,
