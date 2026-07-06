@@ -14,7 +14,8 @@
   'use strict';
 
   var COOKIE = 'fs-cc';
-  var DOMAIN = '.superpower.com';
+  // Works on superpower.com (shared across subdomains) and webflow.io staging.
+  var DOMAIN = /superpower\.com$/.test(location.hostname) ? '.superpower.com' : location.hostname;
   var EXPIRES_DAYS = 180;
   var SOURCE = '/'; // page that holds the [fs-cc] components (fs-cc-source equivalent)
   var CATEGORIES = ['analytics', 'marketing', 'personalization', 'uncategorized'];
@@ -91,8 +92,12 @@
       }
     }, 300);
 
-    // Klaviyo has no consent API — kill its identity cookie on deny.
-    if (!M) document.cookie = '__kla_id=; Max-Age=0; path=/; domain=' + DOMAIN;
+    // Klaviyo has no consent API — kill its identity cookie on deny
+    // (both host-only and domain-scoped variants).
+    if (!M) {
+      document.cookie = '__kla_id=; Max-Age=0; path=/';
+      document.cookie = '__kla_id=; Max-Age=0; path=/; domain=' + DOMAIN;
+    }
   }
 
   function deniedCats(c) {
@@ -102,18 +107,49 @@
 
   function installBlocker(cats) {
     if (!cats.length) return;
+
+    function blockedSrc(url) {
+      for (var j = 0; j < cats.length; j++) if (DENY[cats[j]].test(url)) return true;
+      return false;
+    }
+
+    // Primary: intercept script creation so a denied src is never set — kills
+    // the Meta pixel snippet and everything GTM injects before any fetch.
+    var create = document.createElement;
+    document.createElement = function () {
+      var el = create.apply(document, arguments);
+      if (String(arguments[0]).toLowerCase() === 'script') {
+        var desc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+        Object.defineProperty(el, 'src', {
+          get: function () { return desc.get.call(el); },
+          set: function (v) {
+            if (blockedSrc(String(v))) { el.type = 'javascript/blocked'; el.setAttribute('data-cc-blocked', v); return; }
+            desc.set.call(el, v);
+          }
+        });
+        var setAttr = el.setAttribute;
+        el.setAttribute = function (name, value) {
+          if (String(name).toLowerCase() === 'src' && blockedSrc(String(value))) {
+            el.type = 'javascript/blocked';
+            return setAttr.call(el, 'data-cc-blocked', value);
+          }
+          return setAttr.apply(el, arguments);
+        };
+      }
+      return el;
+    };
+
+    // Backstop for parser-inserted static tags (e.g. klaviyo.js in the head).
+    // The preload request may still fire; execution is neutralized.
     new MutationObserver(function (muts) {
       for (var m = 0; m < muts.length; m++) {
         var nodes = muts[m].addedNodes;
         for (var i = 0; i < nodes.length; i++) {
           var s = nodes[i];
           if (!s.tagName || s.tagName !== 'SCRIPT' || !s.src) continue;
-          for (var j = 0; j < cats.length; j++) {
-            if (DENY[cats[j]].test(s.src)) {
-              s.type = 'javascript/blocked';
-              s.removeAttribute('src');
-              break;
-            }
+          if (blockedSrc(s.src)) {
+            s.type = 'javascript/blocked';
+            s.removeAttribute('src');
           }
         }
       }
@@ -138,18 +174,62 @@
 
   var initial = readConsents();
 
-  // Banner markup lives only on the homepage — on other pages fetch and inject it.
+  // Use custom [fs-cc] markup if the page (or the SOURCE page) has it,
+  // otherwise inject the built-in default banner — same behavior as fs-cc.js.
   function ensureComponents() {
     if (document.querySelector('[fs-cc="banner"]')) return Promise.resolve();
-    return fetch(SOURCE).then(function (r) { return r.text(); }).then(function (html) {
-      var doc = new DOMParser().parseFromString(html, 'text/html');
-      ['banner', 'preferences', 'manager'].forEach(function (k) {
-        var el = doc.querySelector('[fs-cc="' + k + '"]');
-        if (el && !document.querySelector('[fs-cc="' + k + '"]')) {
-          document.body.appendChild(document.importNode(el, true));
-        }
-      });
-    }).catch(function () {}); // banner absent = no UI, enforcement still runs
+    var pull = location.pathname === SOURCE
+      ? Promise.resolve()
+      : fetch(SOURCE).then(function (r) { return r.text(); }).then(function (html) {
+          var doc = new DOMParser().parseFromString(html, 'text/html');
+          ['banner', 'preferences', 'manager'].forEach(function (k) {
+            var el = doc.querySelector('[fs-cc="' + k + '"]');
+            if (el && !document.querySelector('[fs-cc="' + k + '"]')) {
+              document.body.appendChild(document.importNode(el, true));
+            }
+          });
+        }).catch(function () {});
+    return pull.then(function () {
+      if (!document.querySelector('[fs-cc="banner"]')) injectDefaultUI();
+    });
+  }
+
+  // Build a real [fs-cc="banner"] in Webflow to replace this — it takes over automatically.
+  function injectDefaultUI() {
+    document.body.insertAdjacentHTML('beforeend',
+      '<style>' +
+      '.spcc{position:fixed;bottom:20px;left:20px;z-index:2147483000;max-width:360px;' +
+      'background:#0d0d0d;color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:14px;' +
+      'padding:20px;font-size:14px;line-height:1.5;box-shadow:0 8px 30px rgba(0,0,0,.35)}' +
+      '.spcc a{color:#fff;text-decoration:underline;cursor:pointer}' +
+      '.spcc-btns{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}' +
+      '.spcc-btn{padding:8px 16px;border-radius:8px;border:1px solid #fff;background:#fff;' +
+      'color:#000;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}' +
+      '.spcc-ghost{background:transparent;color:#fff;border-color:rgba(255,255,255,.3)}' +
+      '.spcc-overlay{position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.5);' +
+      'align-items:center;justify-content:center}' +
+      '.spcc-modal{background:#0d0d0d;color:#fff;border:1px solid rgba(255,255,255,.12);' +
+      'border-radius:16px;padding:24px;max-width:400px;width:calc(100% - 40px);font-size:14px;line-height:1.5}' +
+      '.spcc-modal h3{margin:0 0 12px;font-size:16px;color:#fff}' +
+      '.spcc-modal label{display:flex;gap:10px;margin:10px 0;align-items:flex-start;cursor:pointer}' +
+      '.spcc-note{opacity:.6;font-size:12px;margin:12px 0 0}' +
+      '@media(max-width:480px){.spcc{left:16px;right:16px;bottom:16px;max-width:none}}' +
+      '</style>' +
+      '<div class="spcc" fs-cc="banner">' +
+      'We use cookies to analyze traffic and improve your experience. <a fs-cc="open-preferences">Preferences</a>' +
+      '<div class="spcc-btns">' +
+      '<button class="spcc-btn spcc-ghost" fs-cc="deny">Decline</button>' +
+      '<button class="spcc-btn" fs-cc="allow">Accept</button>' +
+      '</div></div>' +
+      '<div class="spcc-overlay" fs-cc="preferences"><div class="spcc-modal">' +
+      '<h3>Cookie preferences</h3>' +
+      '<label><input type="checkbox" fs-cc-checkbox="analytics" checked> Analytics &mdash; usage &amp; performance</label>' +
+      '<label><input type="checkbox" fs-cc-checkbox="marketing" checked> Marketing &mdash; ads &amp; attribution</label>' +
+      '<p class="spcc-note">Essential cookies are always on.</p>' +
+      '<div class="spcc-btns">' +
+      '<button class="spcc-btn spcc-ghost" fs-cc="close">Cancel</button>' +
+      '<button class="spcc-btn" fs-cc="submit">Save</button>' +
+      '</div></div></div>');
   }
 
   function initUI() {
@@ -197,6 +277,7 @@
       var t = e.target.closest && e.target.closest('[fs-cc]');
       if (!t) return;
       var action = t.getAttribute('fs-cc');
+      if (/^(allow|deny|submit|open-preferences|manager|close)$/.test(action)) e.preventDefault();
 
       if (action === 'allow') save(all(true));
       else if (action === 'deny') save(all(false));

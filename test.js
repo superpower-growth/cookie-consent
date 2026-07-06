@@ -8,7 +8,7 @@ let observed = false;
 global.window = global;
 global.MutationObserver = function () { this.observe = () => { observed = true; }; };
 global.getComputedStyle = () => ({ display: 'none' });
-global.location = { reload() {} };
+global.location = { hostname: 'superpower-health.webflow.io', pathname: '/', reload() {} };
 
 global.fetch = () => Promise.resolve({ text: () => Promise.resolve('') });
 global.DOMParser = function () { this.parseFromString = () => ({ querySelector: () => null }); };
@@ -20,6 +20,7 @@ global.document = {
   createElement: el,
   head: { appendChild(e) { e.parentNode = { removeChild() {} }; } },
   documentElement: {},
+  body: { insertAdjacentHTML() {}, appendChild() {} },
   querySelector: () => null,
   querySelectorAll: () => [],
   addEventListener() {}
