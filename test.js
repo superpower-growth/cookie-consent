@@ -10,6 +10,9 @@ global.MutationObserver = function () { this.observe = () => { observed = true; 
 global.getComputedStyle = () => ({ display: 'none' });
 global.location = { reload() {} };
 
+global.fetch = () => Promise.resolve({ text: () => Promise.resolve('') });
+global.DOMParser = function () { this.parseFromString = () => ({ querySelector: () => null }); };
+
 const el = () => ({ style: {}, textContent: '', parentNode: null, setAttribute() {}, removeAttribute() {} });
 global.document = {
   cookie: 'fs-cc=' + encodeURIComponent(JSON.stringify({ id: 'x', consents: { essential: true, analytics: true, marketing: false, personalization: true, uncategorized: true } })),

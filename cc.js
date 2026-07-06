@@ -16,6 +16,7 @@
   var COOKIE = 'fs-cc';
   var DOMAIN = '.superpower.com';
   var EXPIRES_DAYS = 180;
+  var SOURCE = '/'; // page that holds the [fs-cc] components (fs-cc-source equivalent)
   var CATEGORIES = ['analytics', 'marketing', 'personalization', 'uncategorized'];
 
   // Common-sense domain → category map. Covers static tags AND scripts GTM
@@ -137,7 +138,25 @@
 
   var initial = readConsents();
 
+  // Banner markup lives only on the homepage — on other pages fetch and inject it.
+  function ensureComponents() {
+    if (document.querySelector('[fs-cc="banner"]')) return Promise.resolve();
+    return fetch(SOURCE).then(function (r) { return r.text(); }).then(function (html) {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      ['banner', 'preferences', 'manager'].forEach(function (k) {
+        var el = doc.querySelector('[fs-cc="' + k + '"]');
+        if (el && !document.querySelector('[fs-cc="' + k + '"]')) {
+          document.body.appendChild(document.importNode(el, true));
+        }
+      });
+    }).catch(function () {}); // banner absent = no UI, enforcement still runs
+  }
+
   function initUI() {
+    ensureComponents().then(setup);
+  }
+
+  function setup() {
     preHide.parentNode && preHide.parentNode.removeChild(preHide);
 
     var banner = document.querySelector('[fs-cc="banner"]');
