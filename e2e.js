@@ -79,6 +79,30 @@ const assert = require('assert');
   assert(!accepted.posthogOptedOut, 'posthog active after accept');
   assert(trackerHits.length > 0, 'trackers running after accept');
 
-  console.log('E2E PASS', { hitsBeforeChoice: hitsBefore, deniedState: state, acceptHits: trackerHits.length });
+  const acceptHits = trackerHits.length;
+
+  // 5. Re-accept after deny, via the footer preferences link:
+  //    denied visitor opens prefs, allows all → reload → trackers fire again.
+  await ctx.clearCookies();
+  await page.goto('https://superpower-health.webflow.io/', { waitUntil: 'domcontentloaded' });
+  await page.click('[fs-cc="banner"] [fs-cc="open-preferences"]');
+  await page.click('[fs-cc="preferences"] [fs-cc="deny"]');
+  await page.waitForTimeout(3500); // deny + auto-reload
+  trackerHits.length = 0;
+  await page.evaluate(() => document.querySelector('footer [fs-cc="open-preferences"], [fs-cc="open-preferences"]').scrollIntoView());
+  await page.click('[fs-cc="open-preferences"]');
+  await page.click('[fs-cc="preferences"] [fs-cc="allow"]');
+  await page.waitForTimeout(4000); // re-accept must reload so blocked scripts load
+  const reaccepted = await page.evaluate(() => ({
+    consents: JSON.parse(decodeURIComponent(document.cookie.match(/fs-cc=([^;]+)/)[1])).consents,
+    posthogOptedOut: !!(window.posthog && window.posthog.has_opted_out_capturing && window.posthog.has_opted_out_capturing()),
+    klaviyoRan: !!(window.klaviyo && window.klaviyo.loaded)
+  }));
+  assert.strictEqual(reaccepted.consents.marketing, true, 're-accept: marketing granted');
+  assert(!reaccepted.posthogOptedOut, 're-accept: posthog back on');
+  assert(reaccepted.klaviyoRan, 're-accept: klaviyo loads again');
+  assert(trackerHits.length > 0, 're-accept: tracker beacons firing again');
+
+  console.log('E2E PASS', { hitsBeforeChoice: hitsBefore, deniedState: state, acceptHits, reacceptHits: trackerHits.length });
   await browser.close();
 })().catch(e => { console.error('E2E FAIL:', e.message); process.exit(1); });

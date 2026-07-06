@@ -269,9 +269,10 @@
     function save(consents) {
       writeConsents(consents);
       hide(banner); hide(prefs); show(manager);
-      // Newly denied category → reload so the blocker applies cleanly and
-      // already-running trackers die. Otherwise update live.
-      if (deniedCats(consents).length > deniedCats(initial).length) {
+      // Denial set changed in either direction → reload: new denials need the
+      // blocker plus already-running trackers killed; lifted denials need
+      // load-time-blocked scripts (Klaviyo, GTM marketing tags) to actually load.
+      if (deniedCats(consents).join() !== deniedCats(initial).join()) {
         location.reload();
       } else {
         enforce(consents, true);
