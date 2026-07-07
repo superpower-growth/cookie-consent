@@ -10,6 +10,7 @@ global.MutationObserver = function () { this.observe = () => { observed = true; 
 global.getComputedStyle = () => ({ display: 'none' });
 global.location = { hostname: 'superpower-health.webflow.io', pathname: '/', reload() {} };
 
+global.localStorage = { getItem: () => null, setItem() {} };
 global.fetch = () => Promise.resolve({ text: () => Promise.resolve('') });
 global.DOMParser = function () { this.parseFromString = () => ({ querySelector: () => null }); };
 

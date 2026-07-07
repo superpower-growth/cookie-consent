@@ -42,6 +42,11 @@
         if (c) return c;
       } catch (e) { /* stale/foreign format — try next */ }
     }
+    // Cookie blocked or cleaned (privacy configs/extensions) — localStorage fallback.
+    try {
+      var ls = JSON.parse(localStorage.getItem(COOKIE) || 'null');
+      if (ls && ls.consents) return ls.consents;
+    } catch (e) {}
     return null;
   }
 
@@ -58,6 +63,8 @@
     document.cookie = COOKIE + '=' + value +
       '; Max-Age=' + EXPIRES_DAYS * 86400 +
       '; path=/; domain=' + DOMAIN + '; SameSite=Lax; Secure';
+    try { localStorage.setItem(COOKIE, JSON.stringify({ consents: consents })); } catch (e) {}
+    return !!readConsents(); // false = browser refused both storages
   }
 
   /* ---------------- enforcement ---------------- */
@@ -279,12 +286,15 @@
     syncCheckboxes(initial);
 
     function save(consents) {
-      writeConsents(consents);
+      var persisted = writeConsents(consents);
       hide(banner); hide(prefs); show(manager);
       // Denial set changed in either direction → reload: new denials need the
       // blocker plus already-running trackers killed; lifted denials need
       // load-time-blocked scripts (Klaviyo, GTM marketing tags) to actually load.
-      if (deniedCats(consents).join() !== deniedCats(initial).join()) {
+      // Only reload if the choice actually persisted — otherwise the banner
+      // comes straight back (Firefox "block all cookies" etc.). In that case
+      // apply the choice live and keep the banner dismissed for this page.
+      if (persisted && deniedCats(consents).join() !== deniedCats(initial).join()) {
         location.reload();
       } else {
         enforce(consents, true);
