@@ -32,13 +32,25 @@
   /* ---------------- cookie ---------------- */
 
   function readConsents() {
-    var m = document.cookie.match(new RegExp('(?:^|; )' + COOKIE + '=([^;]+)'));
-    if (!m) return null; // no choice yet = allow all
-    try { return JSON.parse(decodeURIComponent(m[1])).consents || null; } catch (e) { return null; }
+    // Duplicate fs-cc cookies can exist (stale host-only copies from the old
+    // CMP shadow ours in some browsers) — scan all, use the first that parses.
+    var all = document.cookie.match(new RegExp('(?:^|; )' + COOKIE + '=[^;]+', 'g'));
+    if (!all) return null; // no choice yet = allow all
+    for (var i = 0; i < all.length; i++) {
+      try {
+        var c = JSON.parse(decodeURIComponent(all[i].slice(all[i].indexOf('=') + 1))).consents;
+        if (c) return c;
+      } catch (e) { /* stale/foreign format — try next */ }
+    }
+    return null;
   }
 
   function writeConsents(consents) {
     consents.essential = true;
+    // Expire any shadow variants first so ours is the only fs-cc cookie.
+    document.cookie = COOKIE + '=; Max-Age=0; path=/';
+    document.cookie = COOKIE + '=; Max-Age=0; path=/; domain=' + location.hostname;
+    document.cookie = COOKIE + '=; Max-Age=0; path=/; domain=' + DOMAIN;
     var value = encodeURIComponent(JSON.stringify({
       id: 'cc-' + Math.random().toString(36).slice(2),
       consents: consents
@@ -306,7 +318,12 @@
         syncCheckboxes(readConsents());
         show(prefs);
       }
-      else if (action === 'close') { hide(banner); hide(prefs); if (readConsents()) show(manager); }
+      else if (action === 'close') {
+        hide(prefs);
+        // X saves nothing — until a real choice exists, keep the banner up so
+        // it doesn't silently return on the next page and read as a bug.
+        if (readConsents()) { hide(banner); show(manager); } else { show(banner); }
+      }
     });
   }
 
